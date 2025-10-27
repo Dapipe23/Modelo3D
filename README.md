@@ -2,7 +2,7 @@
 
 ## Spider-Man
 
-El proyecto consiste en la creación de una página web interactiva que presenta un modelo 3D del personaje Spider-Man, utilizando tecnologías web modernas.
+El proyecto consiste en la creación de una página web interactiva con audio de pelicula que presenta un modelo 3D del personaje Spider-Man, utilizando tecnologías web modernas.
 
 Para el renderizado del modelo se empleó la librería model-viewer, que permite integrar modelos 3D en formato (.glb) directamente en HTML con soporte para controles de cámara, animaciones y visualización en realidad aumentada (AR).
 
