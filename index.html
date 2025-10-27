@@ -166,5 +166,20 @@
         </div>
     </section>
 
+    <audio id="bg-music" autoplay loop>
+        <source src="Modelo_3D/src/audio/spiderman.mp3" type="audio/mpeg">
+        Tu navegador no soporta la reproducción de audio.
+    </audio>
+
+
 </body>
+
+<script>
+  const audio = document.getElementById('bg-music');
+
+  document.addEventListener('click', () => {
+    audio.play().catch(err => console.log('Autoplay bloqueado:', err));
+  }, { once: true });
+</script>
+
 </html>
