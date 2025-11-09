@@ -5,28 +5,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Marvel Spider-Man</title>
-    <!-- Import the component -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
-    <link rel="stylesheet" href="Modelo_3D/src/css/style.css">
+    <link rel="stylesheet" href="./Modelo_3D/src/css/style.css">
 </head>
-
 <body>
     <section class="hero-section">
         <model-viewer 
-        src="Modelo_3D/src/models/spider_man_playstation_rigged.glb"
-        camera-controls 
-        autoplay 
-        ar 
-        ar-modes="webxr scene-viewer quick-look"
-        alt="Ultimate Spider-Man 3D"
-        skybox-image="Modelo_3D/src/enviroments/moonless_golf_2k.hdr"
-        exposure="0.65"
-        shadow-intensity="1"
-        camera-orbit="0deg 85deg 4m"
-        camera-target="0m 1m 0m"
-        field-of-view="30deg"
-        style="background: radial-gradient(circle at center, #120000 0%, #000 80%); width:100%; height:90vh;">
-    </model-viewer>
+            src="./Modelo_3D/src/models/spider_man_playstation_rigged.glb"
+            camera-controls 
+            autoplay 
+            ar 
+            ar-modes="webxr scene-viewer quick-look"
+            alt="Ultimate Spider-Man 3D"
+            skybox-image="./Modelo_3D/src/enviroments/moonless_golf_2k.hdr"
+            exposure="0.65"
+            shadow-intensity="1"
+            camera-orbit="0deg 85deg 4m"
+            camera-target="0m 1m 0m"
+            field-of-view="30deg"
+            style="background: radial-gradient(circle at center, #120000 0%, #000 80%); width:100%; height:90vh;">
+        </model-viewer>
 
 
         <div class="hero-content">
