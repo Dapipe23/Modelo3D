@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Cartas 3D - Dragon Ball</title>
+        <link rel="stylesheet" href="./Modelo_3D/src/css/cartas.css" />
+        <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+        <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+        <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+        <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    </head>
+
+    <body>
+        <audio id="bg-music" autoplay loop>
+            <source src="Modelo_3D/src/audio/Goku.mp3" type="audio/mpeg">
+            Tu navegador no soporta la reproducción de audio.
+        </audio>
+
+        <div id="loading-screen" class="loading-screen" style="display:flex">
+            <div class="loading-panel">
+                <div class="loading-content">
+                    <div class="loading-brand"><h2>⚡ Invocando personajes 3D ⚡</h2></div>
+                    <ul class="cards" aria-hidden="true">
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                    </ul>
+                </div>
+                <div class="loading-footer">🐉 Cargando modelos 3D del Shenlong...</div>
+            </div>
+        </div>
+        
+        <div id="root"></div>
+
+        <script>
+            const MODELS_CONFIG = {
+                'goku': './Modelo_3D/src/models/goku.glb',
+                'vegeta': './Modelo_3D/src/models/vegeta.glb',
+                'gohan': './Modelo_3D/src/models/gohan.glb',
+                'celula': './Modelo_3D/src/models/celula.glb',
+                'piccolo': './Modelo_3D/src/models/piccolo.glb',
+                'freezer': './Modelo_3D/src/models/freezer.glb'
+            };
+
+            // Función para obtener la ruta del modelo
+            function getModelPath(characterName) {
+                const normalized = characterName.toLowerCase().trim();
+                return MODELS_CONFIG[normalized] || null;
+            }
+
+            window.MODELS_CONFIG = MODELS_CONFIG;
+            window.getModelPath = getModelPath;
+        </script>
+
+        <script type="text/babel">
+            const { useState, useEffect, useRef } = React;
+
+            function playInvokeSound() {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const o = ctx.createOscillator();
+                    const g = ctx.createGain();
+                    o.type = 'sawtooth';
+                    o.frequency.value = 220;
+                    g.gain.value = 0.001;
+                    o.connect(g);
+                    g.connect(ctx.destination);
+                    const now = ctx.currentTime;
+                    g.gain.setValueAtTime(0.001, now);
+                    g.gain.exponentialRampToValueAtTime(0.5, now + 0.02);
+                    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.9);
+                    o.start(now);
+                    o.stop(now + 1);
+                } catch (e) {
+                    console.warn('Audio not available', e);
+                }
+            }
+
+            function App() {
+                const [cards, setCards] = useState([]);
+                const [selected, setSelected] = useState(null);
+                const [modelLoaded, setModelLoaded] = useState(false);
+                const [modelError, setModelError] = useState(false);
+                const [status, setStatus] = useState('');
+                const [loading, setLoading] = useState(true);
+                const [error, setError] = useState(null);
+                const [attempt, setAttempt] = useState(0);
+                const modelRef = useRef(null);
+
+                useEffect(() => {
+                    window.startLoading && window.startLoading();
+                }, []);
+
+                // Resetear estado del modelo cuando cambia la selección
+                useEffect(() => {
+                    setModelLoaded(false);
+                    setModelError(false);
+                }, [selected]);
+
+                // Añadir listeners de load/error al <model-viewer> usando ref
+                useEffect(() => {
+                    const el = modelRef.current;
+                    if (!el) return;
+                    function onLoad() {
+                        setModelLoaded(true);
+                        setModelError(false);
+                        console.log('✅ Modelo 3D cargado:', selected && selected.name, el.getAttribute('src'));
+                        try {
+                            // model-viewer expone availableAnimations y métodos play/pause
+                            const avail = el.availableAnimations || [];
+                            console.log('Animaciones disponibles:', avail);
+                            if (avail && avail.length) {
+                                // seleccionar el primer clip y reproducir
+                                el.animationName = avail[0];
+                                el.play();
+                            } else {
+                                // reproducir directamente
+                                if (typeof el.play === 'function') el.play();
+                            }
+                        } catch (e) {
+                            console.warn('No se pudo reproducir la animación automáticamente', e);
+                        }
+                    }
+                    function onError(e) {
+                        setModelError(true);
+                        setModelLoaded(false);
+                        console.error('❌ Error cargando modelo:', selected && selected.model, e);
+                    }
+                    el.addEventListener('load', onLoad);
+                    el.addEventListener('error', onError);
+                    return () => {
+                        el.removeEventListener('load', onLoad);
+                        el.removeEventListener('error', onError);
+                    };
+                }, [selected]);
+
+                useEffect(() => {
+                    const API_URL = 'https://dragonball-api.com/api/characters';
+
+                    function load() {
+                        setLoading(true);
+                        setError(null);
+                        setStatus('🔮 Conectando con el Dragon Radar...');
+                        window.startLoading && window.startLoading();
+
+                        const startTime = Date.now();
+                        const MIN_LOADING_MS = 2000;
+
+                        function finishLoading() {
+                            const elapsed = Date.now() - startTime;
+                            const remaining = Math.max(0, MIN_LOADING_MS - elapsed);
+                            setTimeout(() => {
+                                setLoading(false);
+                                window.stopLoading && window.stopLoading();
+                            }, remaining);
+                        }
+
+                        const fetchTimeout = setTimeout(() => {
+                            setError('Timeout al conectar con la API');
+                            setStatus('⚠️ Error de conexión');
+                            finishLoading();
+                        }, 15000);
+
+                        fetch(API_URL)
+                            .then(r => {
+                                clearTimeout(fetchTimeout);
+                                if (!r.ok) throw new Error('API response not ok: ' + r.status);
+                                return r.json();
+                            })
+                            .then(data => {
+                                let arr = [];
+                                if (Array.isArray(data)) {
+                                    arr = data;
+                                } else if (data && typeof data === 'object') {
+                                    arr = data.data || data.results || data.characters || data.items || [];
+                                    if (!Array.isArray(arr) || arr.length === 0) {
+                                        const firstArray = Object.keys(data).map(k => data[k]).find(v => Array.isArray(v));
+                                        if (Array.isArray(firstArray)) arr = firstArray;
+                                    }
+                                }
+
+                                const mapped = Array.isArray(arr)
+                                    ? arr.map((c, i) => {
+                                          const charName = c.name || c.fullName || c.title || `Personaje ${i + 1}`;
+                                          // Intentar obtener modelo 3D desde la configuración local
+                                          const localModel = window.getModelPath ? window.getModelPath(charName) : null;
+                                          
+                                          return {
+                                              id: c.id || String(charName).replace(/\s+/g, '-').toLowerCase(),
+                                              name: charName,
+                                              image: c.image || c.photo || c.imageUrl || c.thumbnail || c.avatar || 'https://via.placeholder.com/400x300?text=Sin+imagen',
+                                              // Prioridad: 1) modelo de API, 2) modelo local configurado, 3) null
+                                              model: c.model || c.modelUrl || c.glb || localModel,
+                                              race: c.race || c.species || 'Unknown',
+                                              gender: c.gender || 'Unknown',
+                                              baseKi: c.baseKi || c.ki || '60.000.000',
+                                              totalKi: c.totalKi || c.maxKi || '90 Septillion',
+                                              affiliation: c.affiliation || c.group || 'Z Fighter'
+                                          };
+                                      })
+                                    : [];
+
+                                if (Array.isArray(mapped) && mapped.length > 1) {
+                                    mapped.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+                                }
+
+                                setCards(mapped);
+                                const with3D = mapped.filter(c => c.model).length;
+                                setStatus(mapped.length > 0 
+                                    ? `⚡ ${mapped.length} guerreros listos (${with3D} con modelo 3D)` 
+                                    : '⚠️ No se encontraron personajes');
+                                if (mapped.length > 0) setSelected(mapped[0]);
+                                finishLoading();
+                            })
+                            .catch(err => {
+                                clearTimeout(fetchTimeout);
+                                console.error('Error cargando desde API', err);
+                                setError(err.message || 'Error al cargar');
+                                setStatus('❌ Error cargando personajes');
+                                finishLoading();
+                            });
+                    }
+
+                    load();
+                }, [attempt]);
+
+                function retry() {
+                    setAttempt(a => a + 1);
+                    setError(null);
+                    setStatus('🔄 Reintentando...');
+                }
+
+                function loadSampleDeck() {
+                    const sample = [
+                        { 
+                            id: 'goku',
+                            name: 'Goku',
+                            image: 'https://dragonball-api.com/characters/goku_normal.webp',
+                            model: window.getModelPath('goku'),
+                            race: 'Saiyan',
+                            gender: 'Male',
+                            baseKi: '60.000.000',
+                            totalKi: '90 Septillion',
+                            affiliation: 'Z Fighter'
+                        },
+                        { 
+                            id: 'vegeta',
+                            name: 'Vegeta',
+                            image: 'https://dragonball-api.com/characters/vegeta_normal.webp',
+                            model: window.getModelPath('vegeta'),
+                            race: 'Saiyan',
+                            gender: 'Male',
+                            baseKi: '54.000.000',
+                            totalKi: '19.84 Septillion',
+                            affiliation: 'Z Fighter'
+                        },
+                        { 
+                            id: 'gohan',
+                            name: 'Gohan',
+                            image: 'https://dragonball-api.com/characters/gohan.webp',
+                            model: window.getModelPath('gohan'),
+                            race: 'Saiyan',
+                            gender: 'Male',
+                            baseKi: '45.000.000',
+                            totalKi: '40 Septillion',
+                            affiliation: 'Z Fighter'
+                        }
+                    ];
+                    
+                    setCards(sample);
+                    setSelected(sample[0]);
+                    setStatus('✅ Cargado desde mazo de ejemplo con modelos 3D');
+                    setError(null);
+                    window.stopLoading && window.stopLoading();
+                }
+
+                function invoke(card) {
+                    setSelected(card);
+                    playInvokeSound();
+                }
+
+                return (
+                    <div className="app container">
+                        <header className="header">
+                            <h1>🐉 Cartas Dragon Ball Z Super 3D 🐉</h1>
+                            <p className="sub">⚡ Selecciona una carta para invocar el poder del guerrero en 3D ⚡</p>
+                            <div style={{marginTop:8,display:'flex',gap:10,alignItems:'center',justifyContent:'center'}}>
+                                <div style={{fontSize:14,color:'var(--muted)',fontWeight:600}}>{status}</div>
+                            </div>
+                        </header>
+
+                        <main className="main" id="app">
+                            <div className="characters" tabIndex={0} onKeyDown={(e)=>{
+                                if (!cards || cards.length===0) return;
+                                const idx = cards.findIndex(c=> selected && c.id===selected.id);
+                                if (e.key === 'ArrowLeft'){
+                                    const prev = idx>0 ? idx-1 : cards.length-1;
+                                    setSelected(cards[prev]);
+                                } else if (e.key === 'ArrowRight'){
+                                    const next = idx<cards.length-1 ? idx+1 : 0;
+                                    setSelected(cards[next]);
+                                }
+                            }}>
+                                {error ? (
+                                    <div style={{padding:20,color:'#ffb3b3',textAlign:'center',gridColumn:'1/-1'}}>
+                                        <div style={{marginBottom:12,fontSize:16}}>❌ Error cargando cartas: {error}</div>
+                                        <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}>
+                                            <button onClick={retry} style={{padding:'10px 16px',borderRadius:8,border:0,background:'var(--accent)',color:'#fff',fontWeight:700,cursor:'pointer'}}>🔄 Reintentar</button>
+                                            <button onClick={loadSampleDeck} style={{padding:'10px 16px',borderRadius:8,border:0,background:'#555',color:'#fff',fontWeight:700,cursor:'pointer'}}>📦 Cargar demo 3D</button>
+                                        </div>
+                                    </div>
+                                ) : cards.length===0 ? (
+                                    <div style={{padding:20,color:'var(--muted)',gridColumn:'1/-1'}}>
+                                        <div>🔮 Cargando cartas...</div>
+                                    </div>
+                                ) : (
+                                    cards.map((card, i) => (
+                                        <div key={card.id}>
+                                            <input 
+                                                type="radio" 
+                                                name="character" 
+                                                id={`character-${i}`} 
+                                                checked={selected ? selected.id === card.id : i === 0}
+                                                value={card.id}
+                                                onChange={() => setSelected(card)} 
+                                            />
+                                            <label htmlFor={`character-${i}`} className="character" onClick={()=>setSelected(card)}>
+                                                <img src={card.image} alt={card.name} />
+                                                {/* Indicador de modelo 3D disponible */}
+                                                {card.model && (
+                                                    <div style={{
+                                                        position:'absolute',
+                                                        top:4,
+                                                        right:4,
+                                                        background:'rgba(255,140,0,0.9)',
+                                                        color:'#fff',
+                                                        fontSize:10,
+                                                        padding:'2px 6px',
+                                                        borderRadius:4,
+                                                        fontWeight:700
+                                                    }}>3D</div>
+                                                )}
+                                            </label>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+
+                            <aside className="preview" aria-live="polite">
+                                <div className="preview-container">
+                                    <div className="sprite-container">
+                                        <div className="sprite">
+                                            {selected ? (
+                                                selected.model ? (
+                                                    <div style={{width:'100%',height:'100%',position:'relative'}}>
+                                                        {!modelLoaded && !modelError && (
+                                                            <div style={{
+                                                                position:'absolute',
+                                                                top:'50%',
+                                                                left:'50%',
+                                                                transform:'translate(-50%,-50%)',
+                                                                color:'var(--accent)',
+                                                                fontSize:16,
+                                                                fontWeight:700
+                                                            }}>
+                                                                ⚡ Cargando modelo 3D...
+                                                            </div>
+                                                        )}
+                                                        {modelError && (
+                                                            <div style={{
+                                                                position:'absolute',
+                                                                top:'50%',
+                                                                left:'50%',
+                                                                transform:'translate(-50%,-50%)',
+                                                                textAlign:'center',
+                                                                color:'#ffb3b3'
+                                                            }}>
+                                                                <div style={{fontSize:40}}>⚠️</div>
+                                                                <div style={{marginTop:10}}>Modelo 3D no disponible</div>
+                                                                <div style={{fontSize:12,color:'var(--muted)',marginTop:5}}>
+                                                                    Mostrando imagen de respaldo
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <model-viewer 
+                                                            ref={modelRef}
+                                                            src={selected.model}
+                                                            alt={selected.name}
+                                                            camera-controls
+                                                            auto-rotate
+                                                            rotation-per-second="30deg"
+                                                            interaction-prompt="auto"
+                                                            shadow-intensity="1"
+                                                            style={{
+                                                                width:'100%',
+                                                                height:'100%',
+                                                                opacity: modelLoaded ? 1 : 0,
+                                                                transition: 'opacity 0.3s ease'
+                                                            }}
+                                                        />
+                                                        {modelError && (
+                                                            <img 
+                                                                src={selected.image} 
+                                                                alt={selected.name}
+                                                                style={{
+                                                                    width:'auto',
+                                                                    height:'80%',
+                                                                    objectFit:'contain',
+                                                                    opacity:0.5
+                                                                }}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <img 
+                                                        src={selected.image} 
+                                                        alt={selected.name}
+                                                        style={{
+                                                            width:'auto',
+                                                            height:'100%',
+                                                            objectFit:'contain'
+                                                        }}
+                                                    />
+                                                )
+                                            ) : (
+                                                <div style={{color:'var(--muted)',padding:20,textAlign:'center'}}>
+                                                    🎴 Selecciona una carta para ver el modelo 3D
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="sprite-stats">
+                                        {selected && (
+                                            <div className="character-info">
+                                                <h2>{selected.name}</h2>
+                                                <div className="info-row">
+                                                    <span className="label">
+                                                        {selected.race} • {selected.gender}
+                                                        {selected.model && modelLoaded && (
+                                                            <span style={{
+                                                                marginLeft:8,
+                                                                fontSize:'0.8em',
+                                                                color:'var(--accent)'
+                                                            }}>🎮 3D</span>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                                <div className="info-grid">
+                                                    <div className="info-item">
+                                                        <label>⚡ Base Ki:</label>
+                                                        <span className="value">{selected.baseKi}</span>
+                                                    </div>
+                                                    <div className="info-item">
+                                                        <label>💥 Total Ki:</label>
+                                                        <span className="value">{selected.totalKi}</span>
+                                                    </div>
+                                                    <div className="info-item full-width">
+                                                        <label>🛡️ Affiliation:</label>
+                                                        <span className="value">{selected.affiliation}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </aside>
+                        </main>
+
+                        <footer className="footer">
+                            🐉 Dragon Ball Z • Modelos 3D interactivos • Rota con el mouse 🎮
+                        </footer>
+                    </div>
+                );
+            }
+
+            ReactDOM.render(<App />, document.getElementById('root'));
+        </script>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+        
+        <script>
+            const audio = document.getElementById('bg-music');
+            document.addEventListener('click', () => {
+                audio.play().catch(err => console.log('Autoplay bloqueado:', err));
+            }, { once: true });
+
+            // Loading animation (código igual que antes)
+            (function(){
+                let tl = null;
+                function startLoading(){
+                    const root = document.getElementById('loading-screen');
+                    if(!root) return;
+                    root.style.display = 'flex';
+                    const cards = root.querySelectorAll('.card');
+                    if (tl) { try{ tl.kill(); } catch(e){} tl = null; }
+                    if (window.gsap) {
+                        tl = gsap.timeline({ repeat: -1, yoyoEase: true });
+                        let yOffset = 60, scaleOffset = 0.02, duration = 0.8, scaleDuration = duration / 3;
+                        let cardsMidIndex = Math.floor(cards.length / 2);
+                        
+                        function driftIn() {
+                            return gsap.timeline().from(root.querySelector('.cards'), {
+                                yPercent: -yOffset / 3, duration, ease: 'power2.inOut', yoyoEase: true
+                            });
+                        }
+                        function driftOut() {
+                            return gsap.timeline().to(root.querySelector('.cards'), {
+                                yPercent: yOffset / 3, duration, ease: 'power2.inOut', yoyoEase: true
+                            });
+                        }
+                        function scaleCards() {
+                            return gsap.timeline()
+                                .to(root.querySelectorAll('.card'), {
+                                    scale: (i) => i <= cardsMidIndex ? 1 - i * scaleOffset : 1 - (cards.length - 1 - i) * scaleOffset,
+                                    delay: duration / 3, duration: scaleDuration, ease: 'expo.inOut', yoyoEase: true
+                                })
+                                .to(root.querySelectorAll('.card'), { scale: 1, duration: scaleDuration });
+                        }
+                        function shuffleCards() {
+                            return gsap.timeline()
+                                .set(root.querySelectorAll('.card'), { y: (i) => -i * 0.5 })
+                                .fromTo(root.querySelectorAll('.card'),
+                                    { rotate: 45, yPercent: -yOffset },
+                                    { duration, rotate: 65, yPercent: yOffset, stagger: duration * 0.03, ease: 'expo.inOut', yoyoEase: true }
+                                );
+                        }
+                        tl.add(driftIn()).add(shuffleCards(), '<').add(scaleCards(), '<').add(driftOut(), '<55%');
+                    }
+                }
+                function stopLoading(){
+                    const root = document.getElementById('loading-screen');
+                    if(tl){ try{ tl.kill(); tl = null; } catch(e){} }
+                    if(root) root.style.display = 'none';
+                }
+                window.startLoading = startLoading;
+                window.stopLoading = stopLoading;
+                
+                if (document.readyState === 'complete' || document.readyState === 'interactive'){
+                    if(window.gsap) startLoading();
+                } else {
+                    window.addEventListener('DOMContentLoaded', ()=>{ if(window.gsap) startLoading(); });
+                }
+            })();
+        </script>
+    </body>
+</html>
