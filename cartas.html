@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Cartas - Invocador</title>
+        <link rel="stylesheet" href="./Modelo_3D/src/css/cartas.css" />
+        <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+        <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+        <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+        <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    </head>
+
+    <body>
+        <div id="loading-screen" class="loading-screen" style="display:flex">
+            <div class="loading-panel">
+                <div class="loading-content">
+                    <div class="loading-brand"><h2>Invocando personajes</h2></div>
+                    <ul class="cards" aria-hidden="true">
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                        <li class="card"></li>
+                    </ul>
+                </div>
+                <div class="loading-footer">Cargando recursos…</div>
+            </div>
+        </div>
+        
+        <div id="root"></div>
+
+        <script type="text/babel">
+            const { useState, useEffect, useRef } = React;
+
+            function playInvokeSound() {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const o = ctx.createOscillator();
+                    const g = ctx.createGain();
+                    o.type = 'sawtooth';
+                    o.frequency.value = 220;
+                    g.gain.value = 0.001;
+                    o.connect(g);
+                    g.connect(ctx.destination);
+                    const now = ctx.currentTime;
+                    g.gain.setValueAtTime(0.001, now);
+                    g.gain.exponentialRampToValueAtTime(0.5, now + 0.02);
+                    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.9);
+                    o.start(now);
+                    o.stop(now + 1);
+                } catch (e) {
+                    console.warn('Audio not available', e);
+                }
+            }
+
+            function App() {
+                const [cards, setCards] = useState([]);
+                const [selected, setSelected] = useState(null);
+                const [zoomed, setZoomed] = useState(false);
+                // interactive 3D-like image controls (for images without GLB models)
+                const [rotX, setRotX] = useState(0);
+                const [rotY, setRotY] = useState(0);
+                const [imgScale, setImgScale] = useState(1);
+                const dragRef = useRef({ dragging: false, startX: 0, startY: 0, startRotX: 0, startRotY: 0 });
+                const imgWrapRef = useRef(null);
+                const [invokedIds, setInvokedIds] = useState([]);
+                const [status, setStatus] = useState('');
+                const [loading, setLoading] = useState(true);
+                const [error, setError] = useState(null);
+                const [raw, setRaw] = useState(null);
+                const [attempt, setAttempt] = useState(0);
+
+                // Efecto para iniciar la animación de carga
+                useEffect(() => {
+                    window.startLoading && window.startLoading();
+                }, []);
+
+                    // Efecto para cargar los datos de la API
+                useEffect(() => {
+                    const API_URL = 'https://dragonball-api.com/api/characters';
+
+                    function load() {
+                        setLoading(true);
+                        setError(null);
+                        setStatus('Cargando...');
+                        // ensure loading screen is visible immediately
+                        window.startLoading && window.startLoading();
+
+                        const startTime = Date.now();
+                        const MIN_LOADING_MS = 2000; // show loading at least 2s
+                        let timeoutId = null;
+
+                        function finishLoading() {
+                            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                            const elapsed = Date.now() - startTime;
+                            const remaining = Math.max(0, MIN_LOADING_MS - elapsed);
+                            setTimeout(() => {
+                                setLoading(false);
+                                window.stopLoading && window.stopLoading();
+                            }, remaining);
+                        }
+
+                        // fetch timeout (long) — if it fires, we'll mark error and finish
+                        const fetchTimeout = setTimeout(() => {
+                            setError('Timeout al conectar con la API');
+                            setStatus('Timeout');
+                            finishLoading();
+                        }, 15000);
+
+                                fetch(API_URL)
+                                    .then(r => {
+                                        clearTimeout(fetchTimeout);
+                                        if (!r.ok) throw new Error('API response not ok: ' + r.status);
+                                        return r.json();
+                                    })
+                                    .then(data => {
+                                        // Guardar la respuesta cruda para debugging en la UI
+                                        try { setRaw(data); } catch(e) { /* ignore */ }
+
+                                        // La API puede devolver directamente un array o un objeto con la lista
+                                        let arr = [];
+                                        if (Array.isArray(data)) {
+                                            arr = data;
+                                        } else if (data && typeof data === 'object') {
+                                            // common keys
+                                            arr = data.data || data.results || data.characters || data.items || [];
+                                            // si todavía no encontramos un array, buscar la primera propiedad que sea array
+                                            if (!Array.isArray(arr) || arr.length === 0) {
+                                                const firstArray = Object.keys(data).map(k => data[k]).find(v => Array.isArray(v));
+                                                if (Array.isArray(firstArray)) arr = firstArray;
+                                            }
+                                        }
+
+                                const mapped = Array.isArray(arr)
+                                    ? arr.map((c, i) => ({
+                                          id: c.id || (c.name ? String(c.name).replace(/\s+/g, '-').toLowerCase() : `api-${i}`),
+                                          name: c.name || c.fullName || c.title || `Personaje ${i + 1}`,
+                                          image: c.image || c.photo || c.imageUrl || c.thumbnail || c.avatar || 'https://via.placeholder.com/400x300?text=Sin+imagen',
+                                          model: c.model || c.modelUrl || c.glb || null,
+                                          race: c.race || c.species || 'Unknown',
+                                          gender: c.gender || 'Unknown',
+                                          baseKi: c.baseKi || c.ki || '60.000.000',
+                                          totalKi: c.totalKi || c.maxKi || '90 Septillion',
+                                          affiliation: c.affiliation || c.group || 'Z Fighter'
+                                      }))
+                                    : [];
+
+                                // sort alphabetically by name for predictable order
+                                if (Array.isArray(mapped) && mapped.length > 1) {
+                                    mapped.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+                                }
+
+                                        setCards(mapped);
+                                        setStatus(mapped.length > 0 ? `Cargado ${mapped.length} personajes` : 'API respondió pero no hay personajes');
+                                        if (mapped.length > 0) setSelected(mapped[0]);
+                                        else console.warn('API returned no usable character array, see raw response (debug UI)');
+                                        finishLoading();
+                                    })
+                                    .catch(err => {
+                                        clearTimeout(fetchTimeout);
+                                        console.error('Error cargando desde API', err);
+                                        setError(err.message || 'Error al cargar');
+                                        setStatus('Error cargando personajes');
+                                        finishLoading();
+                                    });
+                    }
+
+                    load();
+                }, [attempt]);
+
+                function retry() {
+                    setAttempt(a => a + 1);
+                    setError(null);
+                    setStatus('Reintentando...');
+                    window.startLoading && window.startLoading();
+                }
+
+                function loadSampleDeck() {
+                    const sample = [
+                        { 
+                            id: 'goku',
+                            name: 'Goku',
+                            image: 'https://static.wikia.nocookie.net/dragonball/images/6/6f/GokuCharacter.png',
+                            race: 'Saiyan',
+                            gender: 'Male',
+                            baseKi: '60.000.000',
+                            totalKi: '90 Septillion',
+                            affiliation: 'Z Fighter'
+                        },
+                        { 
+                            id: 'vegeta',
+                            name: 'Vegeta',
+                            image: 'https://static.wikia.nocookie.net/dragonball/images/7/72/VegetaCharacter.png',
+                            race: 'Saiyan',
+                            gender: 'Male',
+                            baseKi: '55.000.000',
+                            totalKi: '85 Septillion',
+                            affiliation: 'Z Fighter'
+                        }
+                    ];
+                    
+                    setCards(sample);
+                    setSelected(sample[0]);
+                    setStatus('Cargado desde mazo de ejemplo');
+                    setError(null);
+                    window.stopLoading && window.stopLoading();
+                }
+
+                // reset zoom and interactive transforms when selection changes
+                useEffect(() => {
+                    setZoomed(false);
+                    setRotX(0);
+                    setRotY(0);
+                    setImgScale(1);
+                }, [selected]);
+
+                function invoke(card) {
+                    setInvokedIds(prev => (prev.includes(card.id) ? prev : [...prev, card.id]));
+                    setSelected(card);
+                    playInvokeSound();
+                }
+
+                return (
+                        <div className="app container">
+                            <header className="header">
+                            <h1>Cartas de Personajes dragonball Z super</h1>
+                            <p className="sub">Selecciona una carta para ver el modelo 3D</p>
+                            <div style={{marginTop:8,display:'flex',gap:10,alignItems:'center'}}>
+                                <div style={{fontSize:13,color:'#9aa0b4'}}>{status}</div>
+                            </div>
+                        </header>
+
+                                    <main className="main" id="app">
+                                        <div className="characters" tabIndex={0} onKeyDown={(e)=>{
+                                            if (!cards || cards.length===0) return;
+                                            const idx = cards.findIndex(c=> selected && c.id===selected.id);
+                                            if (e.key === 'ArrowLeft'){
+                                                const prev = idx>0 ? idx-1 : cards.length-1;
+                                                setSelected(cards[prev]);
+                                            } else if (e.key === 'ArrowRight'){
+                                                const next = idx<cards.length-1 ? idx+1 : 0;
+                                                setSelected(cards[next]);
+                                            }
+                                        }}>
+                                                {error ? (
+                                                    <div style={{padding:20,color:'#ffb3b3',textAlign:'center'}}>
+                                                        <div style={{marginBottom:8}}>Error cargando cartas: {error}</div>
+                                                        <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+                                                            <button onClick={retry} style={{padding:'8px 12px',borderRadius:8,border:0,background:'#4c8ee1',color:'#fff'}}>Reintentar</button>
+                                                            <button onClick={loadSampleDeck} style={{padding:'8px 12px',borderRadius:8,border:0,background:'#777',color:'#fff'}}>Cargar demo</button>
+                                                        </div>
+                                                    </div>
+                                                ) : cards.length===0 ? (
+                                                    <div style={{padding:20,color:'#9aa0b4'}}>
+                                                        <div>Cargando cartas...</div>
+                                                        {raw && (
+                                                            <details style={{marginTop:8,color:'#cbd5e0'}}>
+                                                                <summary style={{cursor:'pointer'}}>Ver respuesta cruda de la API</summary>
+                                                                <pre style={{maxHeight:240,overflow:'auto',background:'#0f1724',color:'#d1d5db',padding:8,borderRadius:6}}>{JSON.stringify(raw,null,2)}</pre>
+                                                            </details>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    cards.map((card, i) => (
+                                                        <div key={card.id}>
+                                                            <input 
+                                                                type="radio" 
+                                                                name="character" 
+                                                                id={`character-${i}`} 
+                                                                checked={selected ? selected.id === card.id : i === 0}
+                                                                value={card.id}
+                                                                onChange={() => setSelected(card)} 
+                                                            />
+                                                            <label htmlFor={`character-${i}`} className="character" onClick={()=>setSelected(card)}>
+                                                                <img src={card.image} alt={card.name} />
+                                                            </label>
+                                                        </div>
+                                                    ))
+                                                )}
+                                        </div>
+
+                                        <aside className="preview" aria-live="polite">
+                        <div className="preview-container">
+                                                    <div className="sprite-container">
+                                                        <div className="sprite">
+                                                            {/* model or image displayed here */}
+                                                            <div style={{width:'100%',height:'100%'}}>
+                                                                {selected ? (
+                                                                    selected.model ? (
+                                                                        <model-viewer src={selected.model}
+                                                                            alt={selected.name}
+                                                                            camera-controls
+                                                                            interaction-prompt="auto"
+                                                                            style={{width:'100%',height:'100%'}}>
+                                                                        </model-viewer>
+                                                                    ) : (
+                                                                        <div
+                                                                            ref={imgWrapRef}
+                                                                            className="interactive-3d"
+                                                                            onPointerDown={(e)=>{
+                                                                                e.currentTarget.setPointerCapture(e.pointerId);
+                                                                                dragRef.current.dragging = true;
+                                                                                dragRef.current.startX = e.clientX;
+                                                                                dragRef.current.startY = e.clientY;
+                                                                                dragRef.current.startRotX = rotX;
+                                                                                dragRef.current.startRotY = rotY;
+                                                                            }}
+                                                                            onPointerMove={(e)=>{
+                                                                                if(!dragRef.current.dragging) return;
+                                                                                const dx = e.clientX - dragRef.current.startX;
+                                                                                const dy = e.clientY - dragRef.current.startY;
+                                                                                setRotY(dragRef.current.startRotY + dx * 0.12);
+                                                                                setRotX(Math.max(-30, Math.min(30, dragRef.current.startRotX - dy * 0.08)));
+                                                                            }}
+                                                                            onPointerUp={(e)=>{
+                                                                                try{ e.currentTarget.releasePointerCapture(e.pointerId); }catch(e){}
+                                                                                dragRef.current.dragging = false;
+                                                                            }}
+                                                                            onPointerLeave={()=>{ dragRef.current.dragging = false; }}
+                                                                            onWheel={(e)=>{
+                                                                                e.preventDefault();
+                                                                                const delta = -e.deltaY * 0.0015;
+                                                                                setImgScale(s => Math.max(0.6, Math.min(2, s + delta)));
+                                                                            }}
+                                                                            style={{width:'100%',height:'100%',touchAction:'none',display:'flex',alignItems:'center',justifyContent:'center'}}
+                                                                        >
+                                                                            <img
+                                                                                src={selected.image}
+                                                                                alt={selected.name}
+                                                                                style={{
+                                                                                    transform: `perspective(1100px) rotateX(${rotX}deg) rotateY(${rotY}deg) scale(${imgScale})`,
+                                                                                    transition: dragRef.current.dragging ? 'none' : 'transform 160ms ease',
+                                                                                    width:'auto',
+                                                                                    height:'100%',
+                                                                                    objectFit:'contain',
+                                                                                    willChange:'transform',
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                    )
+                                                                ) : (
+                                                                    <div style={{color:'#9aa0b4',padding:20}}>Selecciona una carta para ver la vista previa</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="sprite-stats">
+                                                        {selected && (
+                                                            <div className="character-info">
+                                                                <h2>{selected.name}</h2>
+                                                                <div className="info-row">
+                                                                    <span className="label">{selected.race} - {selected.gender}</span>
+                                                                </div>
+                                                                <div className="info-grid">
+                                                                    <div className="info-item">
+                                                                        <label>Base Ki:</label>
+                                                                        <span className="value">{selected.baseKi}</span>
+                                                                    </div>
+                                                                    <div className="info-item">
+                                                                        <label>Total Ki:</label>
+                                                                        <span className="value">{selected.totalKi}</span>
+                                                                    </div>
+                                                                    <div className="info-item full-width">
+                                                                        <label>Affiliation:</label>
+                                                                        <span className="value">{selected.affiliation}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                            </div>
+                    </aside>
+                    </main>
+
+                        <footer className="footer">Tema: Anime / Estética invocación • Demo interactiva</footer>
+                    </div>
+                );
+            }
+
+            ReactDOM.render(<App />, document.getElementById('root'));
+        </script>
+            <!-- GSAP for loading animation -->
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+            <script>
+                // Loading animation based on user's snippet, scoped to #loading-screen
+                (function(){
+                    let tl = null;
+                                    function startLoading(){
+                                        console.log('Starting loading animation...');
+                                        const root = document.getElementById('loading-screen');
+                                        if(!root) {
+                                            console.warn('Loading screen element not found');
+                                            return;
+                                        }
+                                        root.style.display = 'flex';
+                                        const cards = root.querySelectorAll('.card');
+                                        let cardsMidIndex = Math.floor(cards.length / 2);
+                                        let yOffset = 60;
+                                        let scaleOffset = 0.02;
+                                        let duration = 0.8;
+                                        let scaleDuration = duration / 3;
+                                        if (tl) { 
+                                            console.log('Killing previous timeline');
+                                            try{ tl.kill(); } catch(e){
+                                                console.error('Error killing timeline:', e);
+                                            } 
+                                            tl = null; 
+                                        }
+
+                                        if (window.gsap) {
+                                            console.log('GSAP found, creating animation...');
+                                            tl = gsap.timeline({ repeat: -1, yoyoEase: true });
+
+                                            function driftIn() {
+                                                return gsap.timeline().from(root.querySelector('.cards'), {
+                                                    yPercent: -yOffset / 3,
+                                                    duration,
+                                                    ease: 'power2.inOut',
+                                                    yoyoEase: true
+                                                });
+                                            }
+
+                                            function driftOut() {
+                                                return gsap.timeline().to(root.querySelector('.cards'), {
+                                                    yPercent: yOffset / 3,
+                                                    duration,
+                                                    ease: 'power2.inOut',
+                                                    yoyoEase: true
+                                                });
+                                            }
+
+                                            function scaleCards() {
+                                                return gsap
+                                                    .timeline()
+                                                    .to(root.querySelectorAll('.card'), {
+                                                        scale: (i) => {
+                                                            if (i <= cardsMidIndex) {
+                                                                return 1 - i * scaleOffset;
+                                                            } else {
+                                                                return 1 - (cards.length - 1 - i) * scaleOffset;
+                                                            }
+                                                        },
+                                                        delay: duration / 3,
+                                                        duration: scaleDuration,
+                                                        ease: 'expo.inOut',
+                                                        yoyoEase: true
+                                                    })
+                                                    .to(root.querySelectorAll('.card'), { scale: 1, duration: scaleDuration });
+                                            }
+
+                                            function shuffleCards() {
+                                                return gsap
+                                                    .timeline()
+                                                    .set(root.querySelectorAll('.card'), {
+                                                        y: (i) => -i * 0.5
+                                                    })
+                                                    .fromTo(
+                                                        root.querySelectorAll('.card'),
+                                                        {
+                                                            rotate: 45,
+                                                            yPercent: -yOffset
+                                                        },
+                                                        {
+                                                            duration,
+                                                            rotate: 65,
+                                                            yPercent: yOffset,
+                                                            stagger: duration * 0.03,
+                                                            ease: 'expo.inOut',
+                                                            yoyoEase: true
+                                                        }
+                                                    );
+                                            }
+
+                                            function shuffleDeck() {
+                                                tl.add(driftIn())
+                                                    .add(shuffleCards(), '<')
+                                                    .add(scaleCards(), '<')
+                                                    .add(driftOut(), '<55%');
+                                            }
+
+                                            shuffleDeck();
+                                        }
+                                    }
+
+                    function stopLoading(){
+                        console.log('Stopping loading animation...');
+                        const root = document.getElementById('loading-screen');
+                        if(tl){ 
+                            console.log('Cleaning up animation timeline');
+                            try{ 
+                                tl.kill();
+                                tl = null;
+                            } catch(e) {
+                                console.error('Error cleaning timeline:', e);
+                            }
+                        }
+                        if(root) {
+                            console.log('Hiding loading screen');
+                            root.style.display = 'none';
+                        }
+                    }
+
+                    // expose globally so React can call when data loads
+                    window.startLoading = startLoading;
+                    window.stopLoading = stopLoading;
+
+                                        // Try to start the animation when GSAP is available.
+                                        // GSAP might load a bit later, so poll briefly until available.
+                                        function tryStartWithRetry(){
+                                            if (window.gsap){
+                                                startLoading();
+                                                return;
+                                            }
+                                            let attempts = 0;
+                                            const id = setInterval(()=>{
+                                                attempts++;
+                                                if (window.gsap){
+                                                    clearInterval(id);
+                                                    startLoading();
+                                                } else if (attempts>100){
+                                                    clearInterval(id);
+                                                    console.warn('GSAP did not load, loading animation unavailable');
+                                                }
+                                            }, 100);
+                                        }
+
+                                        if (document.readyState === 'complete' || document.readyState === 'interactive'){
+                                            tryStartWithRetry();
+                                        } else {
+                                            window.addEventListener('DOMContentLoaded', tryStartWithRetry);
+                                        }
+                })();
+            </script>
+    </body>
+</html>
